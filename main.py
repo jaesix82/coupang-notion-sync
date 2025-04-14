@@ -1,3 +1,4 @@
+from flask import Flask
 import os
 import dropbox
 import pandas as pd
@@ -5,7 +6,6 @@ from dotenv import load_dotenv
 from io import BytesIO
 import re
 import requests
-import time
 
 load_dotenv()
 
@@ -40,6 +40,7 @@ def load_excel_from_dropbox(filename):
 
 def send_to_notion(df, db_type="ads"):
     db_id = ADS_DB_ID if db_type == "ads" else SALES_DB_ID
+    results = []
     for _, row in df.iterrows():
         props = {
             "옵션 ID": {"rich_text": [{"text": {"content": str(row.get("옵션 ID", ""))}}]},
@@ -57,24 +58,33 @@ def send_to_notion(df, db_type="ads"):
             "parent": {"database_id": db_id},
             "properties": props
         })
-        if r.status_code != 200:
-            print("❌", r.text)
+        if r.status_code == 200:
+            results.append(f"✅ {row.get('옵션 ID')}")
         else:
-            print("✅ 업로드:", row.get("옵션 ID"))
+            results.append(f"❌ {r.status_code}: {r.text}")
+    return results
 
 def main():
     filename = get_latest_file()
     if not filename:
-        print("📂 새 엑셀 파일 없음.")
-        return
+        return ["❗ 새 파일 없음."]
     df = load_excel_from_dropbox(filename)
     if "총 광고비용" in df.columns:
-        send_to_notion(df, db_type="ads")
+        return send_to_notion(df, db_type="ads")
     else:
-        send_to_notion(df, db_type="sales")
+        return send_to_notion(df, db_type="sales")
 
-# Render용 루프 (10분마다 실행)
+app = Flask(__name__)
+
+@app.route("/")
+def index():
+    return "🔥 Coupang Notion Sync 서버 실행 중입니다."
+
+@app.route("/run")
+def run_main():
+    results = main()
+    return "<br>".join(results)
+
 if __name__ == "__main__":
-    while True:
-        main()
-        time.sleep(600)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
